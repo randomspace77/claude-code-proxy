@@ -1,5 +1,5 @@
 import type { AppConfig, ClaudeMessagesRequest, ClaudeTokenCountRequest, ClaudeSystemContent } from "./types";
-import { loadConfig, validateClientApiKey, extractApiKey, mapModel } from "./config";
+import { loadConfig, validateClientApiKey, extractApiKey, mapModel, isPassthroughModel } from "./config";
 import { convertClaudeToOpenAI } from "./conversion/request";
 import {
   convertOpenAIToClaude,
@@ -16,7 +16,7 @@ import {
 
 /**
  * POST /v1/messages – Main proxy endpoint.
- * Routes to OpenAI conversion or Anthropic passthrough based on PROXY_MODE.
+ * Routes to OpenAI conversion or Anthropic passthrough based on model name.
  * @param apiKey - The resolved effective API key (server key or client key)
  */
 export async function handleMessages(
@@ -24,37 +24,40 @@ export async function handleMessages(
   config: AppConfig,
   apiKey: string,
 ): Promise<Response> {
-  if (config.proxyMode === "passthrough") {
-    return handleMessagesPassthrough(request, config, apiKey);
+  // Read body once for routing decision
+  const rawBody = await request.text();
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    return errorResponse(400, "Invalid JSON in request body");
   }
 
-  return handleMessagesOpenAI(request, config, apiKey);
+  const model = typeof parsed.model === "string" ? parsed.model : "";
+
+  if (isPassthroughModel(config, model)) {
+    return handleMessagesPassthrough(rawBody, parsed, config, apiKey);
+  }
+
+  return handleMessagesOpenAI(parsed, config, apiKey);
 }
 
 /**
  * Passthrough mode: forward the Anthropic-format request directly to the backend.
  */
 async function handleMessagesPassthrough(
-  request: Request,
+  rawBody: string,
+  parsed: Record<string, unknown>,
   config: AppConfig,
   apiKey: string,
 ): Promise<Response> {
   try {
-    // Read raw body
-    const rawBody = await request.text();
-
     // Optionally apply model mapping
     let forwardBody = rawBody;
-    if (config.enableModelMapping) {
-      try {
-        const parsed = JSON.parse(rawBody);
-        if (parsed.model) {
-          parsed.model = mapModel(config, parsed.model);
-          forwardBody = JSON.stringify(parsed);
-        }
-      } catch {
-        // If parsing fails, forward as-is
-      }
+    if (config.enableModelMapping && parsed.model) {
+      parsed.model = mapModel(config, parsed.model as string);
+      forwardBody = JSON.stringify(parsed);
     }
 
     // Build target URL
@@ -106,18 +109,12 @@ async function handleMessagesPassthrough(
  * OpenAI conversion mode: convert Claude request to OpenAI format and back.
  */
 async function handleMessagesOpenAI(
-  request: Request,
+  parsed: Record<string, unknown>,
   config: AppConfig,
   apiKey: string,
 ): Promise<Response> {
 
-  // Parse body
-  let body: ClaudeMessagesRequest;
-  try {
-    body = (await request.json()) as ClaudeMessagesRequest;
-  } catch {
-    return errorResponse(400, "Invalid JSON in request body");
-  }
+  const body = parsed as unknown as ClaudeMessagesRequest;
 
   // Basic validation
   if (!body.model || !body.messages || !Array.isArray(body.messages)) {
@@ -245,7 +242,7 @@ export function handleRoot(config: AppConfig): Response {
     message: "Claude-to-OpenAI API Proxy v1.0.0",
     status: "running",
     config: {
-      proxy_mode: config.proxyMode,
+      passthrough_models: config.passthroughModels,
       key_mode: config.openaiApiKey ? "managed" : "passthrough",
       openai_base_url: config.openaiBaseUrl,
       max_tokens_limit: config.maxTokensLimit,

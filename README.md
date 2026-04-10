@@ -7,7 +7,7 @@
 - 完整的 `/v1/messages` Claude API 兼容
 - 支持流式 SSE 响应、函数调用 (tool use)、图片输入
 - 自动将 `reasoning_content` 转为 Claude 思维块 (thinking blocks)
-- **Passthrough 模式**：直接转发 Anthropic 格式请求（支持 MiniMax 等）
+- **Passthrough 模式**：按模型自动路由，指定模型前缀使用 Anthropic 格式直转（支持 MiniMax 等）
 - **模型映射可选**：默认忠实转发 model-id，可通过开关启用 BIG/MIDDLE/SMALL 映射
 - **API Key 透传**：客户端 key 直接转发给后端，无需在服务端配置密钥（推荐）
 - 部署在 Cloudflare 全球边缘网络，低延迟
@@ -76,7 +76,7 @@ npm run dev                  # 启动本地开发服务器
 | `OPENAI_API_KEY` | 可选 (Secret) 后端 API Key。不设置则透传客户端 key（推荐） | — |
 | `ANTHROPIC_API_KEY` | 可选 (Secret) 客户端验证 Key（额外安全层） | 不设置则接受任意 Key |
 | `OPENAI_BASE_URL` | API 基础 URL | `https://api.openai.com/v1` |
-| `PROXY_MODE` | 代理模式：`openai`（转换）或 `passthrough`（直接转发） | `openai` |
+| `PASSTHROUGH_MODELS` | 逗号分隔的模型前缀，匹配的模型以 Anthropic 格式直转 | 空（全部走 OpenAI 转换） |
 | `ENABLE_MODEL_MAPPING` | 设为 `true` 启用 Claude→Provider 模型映射 | `false`（直接转发 model-id） |
 | `BIG_MODEL` | Claude opus 请求映射（需启用模型映射） | `gpt-4o` |
 | `MIDDLE_MODEL` | Claude sonnet 请求映射（需启用模型映射） | `gpt-4o` |
@@ -87,12 +87,24 @@ npm run dev                  # 启动本地开发服务器
 | `AZURE_API_VERSION` | Azure OpenAI API 版本 | — |
 | `CUSTOM_HEADERS` | 自定义 HTTP 头 (JSON 字符串) | — |
 
-### 代理模式
+### 请求路由
 
-| 模式 | 说明 |
+默认所有请求走 **OpenAI 转换**（Claude 格式 → OpenAI 格式）。
+
+通过 `PASSTHROUGH_MODELS` 可指定需要 **Anthropic 直转**的模型前缀：
+
+```toml
+# 例如：MiniMax 模型使用 Anthropic API 格式，其他模型走 OpenAI 转换
+PASSTHROUGH_MODELS = "minimax"
+```
+
+| 请求模型 | 路由 |
 | --- | --- |
-| `openai` (默认) | 将 Claude API 请求转换为 OpenAI API 格式，适用于 OpenAI、DeepSeek、GLM、Qwen 等 |
-| `passthrough` | 直接转发 Anthropic 格式请求到后端 API，适用于 MiniMax 等 Anthropic 兼容提供商 |
+| `glm-5.1` | → OpenAI 转换 (`/chat/completions`) |
+| `minimax-m2.5` | → Anthropic 直转 (`/messages`) |
+| `deepseek-chat` | → OpenAI 转换 (`/chat/completions`) |
+
+这样同一个代理可以同时服务不同格式的后端 API。
 
 ### API Key 模式
 
@@ -166,13 +178,15 @@ SMALL_MODEL = "deepseek-chat"
 </details>
 
 <details>
-<summary><b>OpenCode Go — GLM 5.1（透传模式）</b></summary>
+<summary><b>OpenCode Go — GLM + MiniMax 混合</b></summary>
 
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://opencode.ai/zen/go/v1"
+PASSTHROUGH_MODELS = "minimax"
 # 不设置 OPENAI_API_KEY — 客户端 key 直接透传给后端
-# model-id 由客户端直接指定，如 glm-5.1
+# GLM 模型（如 glm-5.1）走 OpenAI 转换
+# MiniMax 模型（如 minimax-m2.5）走 Anthropic 直转
 ```
 
 自动将 GLM 5.1 的 `reasoning_content` 转换为 Claude 思维块。
@@ -188,20 +202,6 @@ OPENAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 ```
 
 自动将 GLM 5.1 的 `reasoning_content` 转换为 Claude 思维块。
-</details>
-
-<details>
-<summary><b>OpenCode Go — MiniMax（Passthrough + 透传模式）</b></summary>
-
-```toml
-[vars]
-PROXY_MODE = "passthrough"
-OPENAI_BASE_URL = "https://opencode.ai/zen/go/v1"
-# MiniMax 使用 Anthropic API 格式，直接转发请求
-# model-id 由客户端指定，如 minimax-m2.5、minimax-m2.7
-```
-
-Passthrough 模式下请求以 Anthropic 格式直接转发，无需转换。
 </details>
 
 <details>

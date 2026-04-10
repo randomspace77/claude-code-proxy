@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   loadConfig,
   mapModel,
+  isPassthroughModel,
   validateClientApiKey,
   extractApiKey,
 } from "../src/config";
@@ -36,7 +37,7 @@ describe("loadConfig", () => {
     expect(config.customHeaders).toEqual({});
     expect(config.anthropicApiKey).toBeUndefined();
     expect(config.azureApiVersion).toBeUndefined();
-    expect(config.proxyMode).toBe("openai");
+    expect(config.passthroughModels).toEqual([]);
     expect(config.enableModelMapping).toBe(false);
   });
 
@@ -113,6 +114,20 @@ describe("loadConfig", () => {
     const config = loadConfig(env);
     expect(config.middleModel).toBe("glm-5.1");
   });
+
+  it("parses PASSTHROUGH_MODELS as comma-separated prefixes", () => {
+    const env: Env = {
+      ...minimalEnv,
+      PASSTHROUGH_MODELS: "minimax, some-model , another",
+    };
+    const config = loadConfig(env);
+    expect(config.passthroughModels).toEqual(["minimax", "some-model", "another"]);
+  });
+
+  it("defaults to empty passthrough models", () => {
+    const config = loadConfig(minimalEnv);
+    expect(config.passthroughModels).toEqual([]);
+  });
 });
 
 // ---- mapModel ----
@@ -129,7 +144,7 @@ describe("mapModel", () => {
     requestTimeout: 90,
     logLevel: "WARNING",
     customHeaders: {},
-    proxyMode: "openai",
+    passthroughModels: [],
     enableModelMapping: false,
   };
 
@@ -227,6 +242,49 @@ describe("mapModel", () => {
   });
 });
 
+// ---- isPassthroughModel ----
+
+describe("isPassthroughModel", () => {
+  const baseConfig: AppConfig = {
+    openaiApiKey: "test",
+    openaiBaseUrl: "https://api.openai.com/v1",
+    bigModel: "gpt-4o",
+    middleModel: "gpt-4o",
+    smallModel: "gpt-4o-mini",
+    maxTokensLimit: 16384,
+    minTokensLimit: 4096,
+    requestTimeout: 90,
+    logLevel: "WARNING",
+    customHeaders: {},
+    passthroughModels: [],
+    enableModelMapping: false,
+  };
+
+  it("returns false when no passthrough models configured", () => {
+    expect(isPassthroughModel(baseConfig, "minimax-m2.5")).toBe(false);
+    expect(isPassthroughModel(baseConfig, "glm-5.1")).toBe(false);
+  });
+
+  it("matches model by prefix", () => {
+    const config = { ...baseConfig, passthroughModels: ["minimax"] };
+    expect(isPassthroughModel(config, "minimax-m2.5")).toBe(true);
+    expect(isPassthroughModel(config, "minimax-m2.7")).toBe(true);
+    expect(isPassthroughModel(config, "glm-5.1")).toBe(false);
+  });
+
+  it("supports multiple prefixes", () => {
+    const config = { ...baseConfig, passthroughModels: ["minimax", "some-other"] };
+    expect(isPassthroughModel(config, "minimax-m2.5")).toBe(true);
+    expect(isPassthroughModel(config, "some-other-model")).toBe(true);
+    expect(isPassthroughModel(config, "glm-5.1")).toBe(false);
+  });
+
+  it("is case-insensitive", () => {
+    const config = { ...baseConfig, passthroughModels: ["minimax"] };
+    expect(isPassthroughModel(config, "MiniMax-M2.5")).toBe(true);
+  });
+});
+
 // ---- validateClientApiKey ----
 
 describe("validateClientApiKey", () => {
@@ -241,7 +299,7 @@ describe("validateClientApiKey", () => {
     requestTimeout: 90,
     logLevel: "WARNING",
     customHeaders: {},
-    proxyMode: "openai",
+    passthroughModels: [],
     enableModelMapping: false,
   };
 

@@ -15,7 +15,7 @@ export interface Env {
   REQUEST_TIMEOUT: string;
   LOG_LEVEL: string;
   CUSTOM_HEADERS?: string; // JSON string of custom headers
-  PROXY_MODE?: string; // "openai" (default) or "passthrough"
+  PASSTHROUGH_MODELS?: string; // Comma-separated model prefixes for Anthropic passthrough
   ENABLE_MODEL_MAPPING?: string; // "true" to enable Claude→provider model mapping
 }
 
@@ -218,6 +218,6 @@ export interface AppConfig {
   requestTimeout: number;
   logLevel: string;
   customHeaders: Record<string, string>;
-  proxyMode: "openai" | "passthrough";
+  passthroughModels: string[];
   enableModelMapping: boolean;
 }

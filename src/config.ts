@@ -7,7 +7,7 @@ import type { Env, AppConfig } from "./types";
 export function loadConfig(env: Env): AppConfig {
   const bigModel = env.BIG_MODEL || "gpt-4o";
   const customHeaders = parseCustomHeaders(env.CUSTOM_HEADERS);
-  const proxyMode = env.PROXY_MODE === "passthrough" ? "passthrough" : "openai";
+  const passthroughModels = parsePassthroughModels(env.PASSTHROUGH_MODELS);
   const enableModelMapping = env.ENABLE_MODEL_MAPPING === "true";
 
   return {
@@ -23,7 +23,7 @@ export function loadConfig(env: Env): AppConfig {
     requestTimeout: parseInt(env.REQUEST_TIMEOUT || "90", 10),
     logLevel: env.LOG_LEVEL || "WARNING",
     customHeaders,
-    proxyMode,
+    passthroughModels,
     enableModelMapping,
   };
 }
@@ -51,6 +51,26 @@ function parseCustomHeaders(
     // ignore parse errors
   }
   return {};
+}
+
+/**
+ * Parse comma-separated passthrough model prefixes.
+ */
+function parsePassthroughModels(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Check if a model should use Anthropic passthrough mode.
+ */
+export function isPassthroughModel(config: AppConfig, model: string): boolean {
+  if (config.passthroughModels.length === 0) return false;
+  const lower = model.toLowerCase();
+  return config.passthroughModels.some((prefix) => lower.startsWith(prefix));
 }
 
 /**
