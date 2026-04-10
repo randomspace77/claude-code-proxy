@@ -32,7 +32,7 @@ export default {
         return handleHealth(config);
       }
       if (request.method === "GET" && path === "/") {
-        return handleRoot(config);
+        return handleRoot();
       }
 
       // Auth-protected endpoints

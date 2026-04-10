@@ -58,45 +58,24 @@ describe("handleHealth", () => {
 
 describe("handleRoot", () => {
   it("returns proxy information", async () => {
-    const response = handleRoot(defaultConfig);
+    const response = handleRoot();
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.message).toBe("Claude-to-OpenAI API Proxy v1.0.0");
     expect(body.status).toBe("running");
   });
 
-  it("includes config and endpoints", async () => {
-    const response = handleRoot(defaultConfig);
+  it("includes endpoints but does not expose config", async () => {
+    const response = handleRoot();
     const body = (await response.json()) as Record<string, unknown>;
 
-    const config = body.config as Record<string, unknown>;
-    expect(config.openai_base_url).toBe("https://api.openai.com/v1");
-    expect(config.max_tokens_limit).toBe(16384);
-    expect(config.key_mode).toBe("managed");
-    expect(config.client_api_key_validation).toBe(false);
-    expect(config.big_model).toBe("gpt-4o");
-    expect(config.middle_model).toBe("gpt-4o");
-    expect(config.small_model).toBe("gpt-4o-mini");
+    // Config should NOT be exposed on the root endpoint
+    expect(body).not.toHaveProperty("config");
 
     const endpoints = body.endpoints as Record<string, unknown>;
     expect(endpoints.messages).toBe("/v1/messages");
     expect(endpoints.count_tokens).toBe("/v1/messages/count_tokens");
     expect(endpoints.health).toBe("/health");
-  });
-
-  it("shows GLM models when configured", async () => {
-    const config = {
-      ...defaultConfig,
-      bigModel: "glm-5.1",
-      middleModel: "glm-5.1",
-      smallModel: "glm-5.1",
-    };
-    const response = handleRoot(config);
-    const body = (await response.json()) as Record<string, unknown>;
-    const cfg = body.config as Record<string, unknown>;
-    expect(cfg.big_model).toBe("glm-5.1");
-    expect(cfg.middle_model).toBe("glm-5.1");
-    expect(cfg.small_model).toBe("glm-5.1");
   });
 });
 

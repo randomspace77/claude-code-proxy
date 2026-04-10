@@ -236,22 +236,12 @@ export function handleHealth(config: AppConfig): Response {
 
 /**
  * GET / – Root endpoint.
+ * Only exposes non-sensitive service info; internal config is hidden.
  */
-export function handleRoot(config: AppConfig): Response {
+export function handleRoot(): Response {
   return Response.json({
     message: "Claude-to-OpenAI API Proxy v1.0.0",
     status: "running",
-    config: {
-      passthrough_models: config.passthroughModels,
-      key_mode: config.openaiApiKey ? "managed" : "passthrough",
-      openai_base_url: config.openaiBaseUrl,
-      max_tokens_limit: config.maxTokensLimit,
-      client_api_key_validation: Boolean(config.anthropicApiKey),
-      enable_model_mapping: config.enableModelMapping,
-      big_model: config.bigModel,
-      middle_model: config.middleModel,
-      small_model: config.smallModel,
-    },
     endpoints: {
       messages: "/v1/messages",
       count_tokens: "/v1/messages/count_tokens",
