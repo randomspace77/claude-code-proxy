@@ -14,7 +14,7 @@ describe("Claude Code Proxy Worker", () => {
 
       expect(response.status).toBe(200);
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.message).toBe("Claude-to-OpenAI API Proxy v1.0.0");
+      expect(body.message).toBe("Claude-to-OpenAI API Proxy (CF Workers) v1.0.0");
       expect(body.status).toBe("running");
       expect(body).toHaveProperty("endpoints");
     });

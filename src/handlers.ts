@@ -70,7 +70,7 @@ async function handleMessagesPassthrough(
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
-      "User-Agent": "claude-code-proxy/1.0.0",
+      "User-Agent": "claude-code-proxy-cf-workers/1.0.0",
     };
 
     // Merge custom headers (can override defaults)
@@ -240,7 +240,7 @@ export function handleHealth(config: AppConfig): Response {
  */
 export function handleRoot(): Response {
   return Response.json({
-    message: "Claude-to-OpenAI API Proxy v1.0.0",
+    message: "Claude-to-OpenAI API Proxy (CF Workers) v1.0.0",
     status: "running",
     endpoints: {
       messages: "/v1/messages",

@@ -1,25 +1,29 @@
 #:schema node_modules/wrangler/config-schema.json
-name = "claude-code-proxy"
+name = "claude-code-proxy-cf-workers"
 main = "src/index.ts"
 compatibility_date = "2026-04-10"
 compatibility_flags = ["nodejs_compat"]
 
-# Environment variables (non-secret defaults)
-# Override these in the Cloudflare dashboard or via `wrangler secret put`
-[vars]
-BIG_MODEL = "gpt-4o"
-MIDDLE_MODEL = "gpt-4o"
-SMALL_MODEL = "gpt-4o-mini"
-OPENAI_BASE_URL = "https://api.openai.com/v1"
-MAX_TOKENS_LIMIT = "16384"
-MIN_TOKENS_LIMIT = "4096"
-REQUEST_TIMEOUT = "90"
-LOG_LEVEL = "WARNING"
-# PASSTHROUGH_MODELS = ""            # Comma-separated model prefixes for Anthropic passthrough, e.g. "minimax"
-# ENABLE_MODEL_MAPPING = "false"     # Set to "true" to enable Claude→provider model mapping
-
-# Secrets (set via `wrangler secret put <KEY>`):
-# - OPENAI_API_KEY (optional, 不设置则透传客户端 key — 推荐)
-# - ANTHROPIC_API_KEY (optional, 客户端验证的额外安全层)
-# - AZURE_API_VERSION (optional, for Azure OpenAI)
-# - Custom headers: CUSTOM_HEADERS (optional, JSON string)
+# ============================================================
+# All configuration is done via Cloudflare Dashboard or `wrangler secret put`.
+# Do NOT add [vars] here — they would overwrite Dashboard settings on every deploy.
+# Defaults are handled in src/config.ts.
+#
+# Dashboard → Settings → Variables and Secrets:
+#   OPENAI_BASE_URL        (default: https://api.openai.com/v1)
+#   BIG_MODEL              (default: gpt-4o)
+#   MIDDLE_MODEL           (default: same as BIG_MODEL)
+#   SMALL_MODEL            (default: gpt-4o-mini)
+#   MAX_TOKENS_LIMIT       (default: 16384)
+#   MIN_TOKENS_LIMIT       (default: 4096)
+#   REQUEST_TIMEOUT        (default: 90)
+#   LOG_LEVEL              (default: WARNING)
+#   PASSTHROUGH_MODELS     (comma-separated model prefixes for Anthropic passthrough)
+#   ENABLE_MODEL_MAPPING   (set to "true" to enable Claude→provider model mapping)
+#
+# Secrets (use `wrangler secret put <KEY>` or Dashboard):
+#   OPENAI_API_KEY         (optional — leave unset for client key passthrough, recommended)
+#   ANTHROPIC_API_KEY      (optional — additional client auth layer)
+#   AZURE_API_VERSION      (optional — for Azure OpenAI)
+#   CUSTOM_HEADERS         (optional — JSON string of custom HTTP headers)
+# ============================================================

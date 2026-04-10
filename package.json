@@ -1,5 +1,5 @@
 {
-  "name": "claude-code-proxy",
+  "name": "claude-code-proxy-cf-workers",
   "version": "1.0.0",
   "type": "module",
   "description": "A Cloudflare Workers proxy that enables Claude Code to work with OpenAI-compatible API providers",

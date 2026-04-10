@@ -127,7 +127,7 @@ function buildHeaders(config: AppConfig, apiKey?: string): Record<string, string
   const effectiveKey = apiKey ?? config.openaiApiKey;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "User-Agent": "claude-code-proxy/1.0.0",
+    "User-Agent": "claude-code-proxy-cf-workers/1.0.0",
   };
 
   if (config.azureApiVersion) {
