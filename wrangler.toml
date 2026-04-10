@@ -1,0 +1,23 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "claude-code-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-04-10"
+compatibility_flags = ["nodejs_compat"]
+
+# Environment variables (non-secret defaults)
+# Override these in the Cloudflare dashboard or via `wrangler secret put`
+[vars]
+BIG_MODEL = "gpt-4o"
+MIDDLE_MODEL = "gpt-4o"
+SMALL_MODEL = "gpt-4o-mini"
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+MAX_TOKENS_LIMIT = "16384"
+MIN_TOKENS_LIMIT = "4096"
+REQUEST_TIMEOUT = "90"
+LOG_LEVEL = "WARNING"
+
+# Secrets (set via `wrangler secret put <KEY>`):
+# - OPENAI_API_KEY (required)
+# - ANTHROPIC_API_KEY (optional, for client validation)
+# - AZURE_API_VERSION (optional, for Azure OpenAI)
+# - Custom headers: CUSTOM_HEADERS (optional, JSON string)
