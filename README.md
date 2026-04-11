@@ -69,7 +69,7 @@ Client Request (Claude API format)
 #### Option 2: Wrangler CLI
 
 ```bash
-git clone https://github.com/ray5cc/claude-code-proxy-cf-workers.git
+git clone https://github.com/randomspace77/claude-code-proxy-cf-workers.git
 cd claude-code-proxy-cf-workers
 npm install
 
@@ -520,7 +520,7 @@ src/
 #### 方式二：Wrangler CLI
 
 ```bash
-git clone https://github.com/ray5cc/claude-code-proxy-cf-workers.git
+git clone https://github.com/randomspace77/claude-code-proxy-cf-workers.git
 cd claude-code-proxy-cf-workers
 npm install
 
