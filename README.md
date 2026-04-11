@@ -8,7 +8,7 @@
 
 ## English
 
-A **Cloudflare Worker** proxy that enables **Claude Code** to use any OpenAI-compatible API — with built-in **multi-provider routing**. A single deployment can route different models to different providers (OpenAI, DeepSeek, GLM, Gemini, Anthropic, etc.) based on glob patterns, while handling API format conversion automatically.
+A **Cloudflare Worker** proxy that lets **Claude Code** use any OpenAI-compatible API — with built-in **multi-provider routing**. One deployment routes different models to different providers (OpenAI, DeepSeek, GLM, Gemini, Anthropic, etc.) and handles API format conversion automatically.
 
 ### ✨ Features
 
@@ -20,7 +20,7 @@ A **Cloudflare Worker** proxy that enables **Claude Code** to use any OpenAI-com
 - **Dual protocol support**: OpenAI-compatible conversion + Anthropic passthrough
 - **Per-provider API keys** — `PROVIDER_<NAME>_API_KEY` as secrets, or client key passthrough
 - **Per-provider model mapping** — map Claude model names (opus/sonnet/haiku) to provider-specific models
-- Deployed on Cloudflare's global edge network for low latency
+- Deployed on Cloudflare's global edge network with [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement/) for region bypass
 - Constant-time API key comparison to prevent timing attacks
 - **Full backward compatibility** — legacy single-provider config still works
 
@@ -55,33 +55,30 @@ Client Request (Claude API format)
   Backend  Backend
 ```
 
-### 🚀 Deployment
+### 🚀 Quick Start
 
-#### Option 1: Fork + Cloudflare Auto-Deploy (Recommended)
+#### Step 1: Deploy
+
+**Option A: Fork + Cloudflare Auto-Deploy (Recommended)**
 
 1. **Fork this repository** to your GitHub account
 2. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create**
 3. Select **Import a repository**, connect your GitHub account, choose the forked repo
-4. Keep default build settings (`npm run build` / `npm run deploy`)
-5. Configure in Worker **Settings → Variables and Secrets** (see [Configuration](#configuration))
-6. All configuration is done via Dashboard — syncing upstream updates won't overwrite your settings
+4. Keep default build settings — click **Deploy**
+5. Configure environment variables in Worker **Settings → Variables and Secrets** (see Step 2)
 
-#### Option 2: Wrangler CLI
+> ℹ️ All configuration lives in the Dashboard. Syncing upstream updates will **never** overwrite your settings (`keep_vars = true`).
+
+**Option B: Wrangler CLI**
 
 ```bash
 git clone https://github.com/randomspace77/claude-code-proxy-cf-workers.git
 cd claude-code-proxy-cf-workers
 npm install
-
-# Set provider API keys as secrets
-wrangler secret put PROVIDER_OPENAI_API_KEY
-wrangler secret put PROVIDER_DEEPSEEK_API_KEY  # etc.
-wrangler secret put ANTHROPIC_API_KEY          # optional, for proxy auth
-
 npm run deploy
 ```
 
-#### Option 3: Local Development
+**Option C: Local Development**
 
 ```bash
 cp .env.example .dev.vars   # Edit with your API keys
@@ -89,27 +86,95 @@ npm install
 npm run dev
 ```
 
-### <a id="configuration"></a>🔧 Configuration
+#### Step 2: Configure Environment Variables
 
-All configuration is done via **Cloudflare Dashboard** (Settings → Variables and Secrets). No `[vars]` in `wrangler.toml` — deployments never overwrite your settings.
+After deploying, go to **Cloudflare Dashboard → Your Worker → Settings → Variables and Secrets**.
 
-#### Multi-Provider Mode (Recommended)
+You need to set up to **3 things**:
 
-Set the `PROVIDERS` environment variable (plaintext JSON) to configure multiple providers and model routing:
+| # | What | Where | Purpose |
+|---|------|-------|---------|
+| 1 | `PROVIDERS` | Plaintext Variable | Tells the proxy which providers to use and how to route models |
+| 2 | `PROVIDER_<NAME>_API_KEY` | Secret | API key for each provider (one per provider) |
+| 3 | `ANTHROPIC_API_KEY` | Secret | *(Optional)* Protects your proxy from unauthorized access |
+
+**Example setup** (OpenAI as default + DeepSeek for deepseek models):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Cloudflare Dashboard → Settings → Variables and Secrets         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📄 Plaintext Variables:                                        │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ PROVIDERS = {                                           │    │
+│  │   "default": "openai",                                  │    │
+│  │   "routing": { "deepseek-*": "deepseek" },              │    │
+│  │   "providers": {                                        │    │
+│  │     "openai": {},                                       │    │
+│  │     "deepseek": {}                                      │    │
+│  │   }                                                     │    │
+│  │ }                                                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  🔐 Secrets:                                                    │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ PROVIDER_OPENAI_API_KEY    = sk-xxxxx                   │    │
+│  │ PROVIDER_DEEPSEEK_API_KEY  = sk-xxxxx                   │    │
+│  │ ANTHROPIC_API_KEY          = my-proxy-password           │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+Or via CLI:
+```bash
+# Set PROVIDERS as plaintext variable in Dashboard, then:
+wrangler secret put PROVIDER_OPENAI_API_KEY
+wrangler secret put PROVIDER_DEEPSEEK_API_KEY
+wrangler secret put ANTHROPIC_API_KEY   # optional
+```
+
+#### Step 3: Connect Claude Code
+
+```bash
+ANTHROPIC_BASE_URL=https://your-worker.your-subdomain.workers.dev \
+ANTHROPIC_API_KEY="my-proxy-password" \
+claude
+```
+
+> If you didn't set `ANTHROPIC_API_KEY` on the proxy, use any non-empty string as `ANTHROPIC_API_KEY`.
+
+---
+
+### 🔧 Configuration Reference
+
+#### Understanding the Two Modes
+
+| | Multi-Provider Mode | Legacy Mode |
+|---|---|---|
+| **When** | `PROVIDERS` env var is set | `PROVIDERS` is NOT set |
+| **Capabilities** | Multiple providers, glob routing, per-provider keys | Single provider only |
+| **Recommended** | ✅ Yes | For simple single-provider setups |
+
+#### Multi-Provider Mode — `PROVIDERS` JSON
+
+The `PROVIDERS` variable is a JSON string with three fields:
 
 ```jsonc
 {
+  // REQUIRED: which provider handles models that don't match any routing rule
   "default": "openai",
+
+  // OPTIONAL: route specific models to specific providers (first match wins)
   "routing": {
-    "glm-*": "glm",
-    "deepseek-*": "deepseek",
-    "claude-*": "anthropic",
-    "gpt-*": "openai",
-    "o1-*": "openai",
-    "o3-*": "openai",
-    "gemini-*": "gemini",
-    "qwen-*": "qwen"
+    "glm-*": "glm",           // all models starting with "glm-" → glm provider
+    "deepseek-*": "deepseek", // deepseek-chat, deepseek-coder, etc.
+    "claude-*": "anthropic",  // passthrough to Anthropic
+    "qwen/*": "openrouter"    // slash-style models (e.g., qwen/qwen-3.6)
   },
+
+  // OPTIONAL: per-provider configuration overrides
   "providers": {
     "openai": {
       "modelMapping": { "opus": "gpt-4o", "sonnet": "gpt-4o", "haiku": "gpt-4o-mini" }
@@ -117,29 +182,85 @@ Set the `PROVIDERS` environment variable (plaintext JSON) to configure multiple 
     "glm": { "timeout": 120 },
     "deepseek": {},
     "anthropic": {},
-    "gemini": {},
-    "qwen": {}
+    "openrouter": {}
   }
 }
 ```
 
-Then set each provider's API key as a **secret**:
+**How routing works:**
+1. Client sends a request with `model: "deepseek-chat"`
+2. Proxy checks each pattern in `routing` top-to-bottom
+3. `"deepseek-*"` matches → routes to the `deepseek` provider
+4. If nothing matches → uses the `default` provider
 
-```bash
-wrangler secret put PROVIDER_OPENAI_API_KEY
-wrangler secret put PROVIDER_GLM_API_KEY
-wrangler secret put PROVIDER_DEEPSEEK_API_KEY
-# ... etc.
+**ProviderConfig fields** (all optional for built-in providers):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `baseUrl` | `string` | Override the provider's API URL (required for custom providers) |
+| `protocol` | `"openai"` \| `"anthropic"` | API format — `openai` converts Claude↔OpenAI, `anthropic` passes through |
+| `timeout` | `number` | Request timeout in seconds (overrides global `REQUEST_TIMEOUT`) |
+| `headers` | `Record<string, string>` | Additional HTTP headers sent to this provider |
+| `modelMapping` | `Record<string, string>` | Map model keywords to provider-specific names |
+| `azureApiVersion` | `string` | Azure OpenAI API version (for Azure provider) |
+
+#### API Key Setup (Important!)
+
+Each provider needs its own API key, stored as a **Cloudflare Secret**:
+
+```
+Provider name in config  →  Secret name in Dashboard
+─────────────────────────────────────────────────────
+openai                   →  PROVIDER_OPENAI_API_KEY
+deepseek                 →  PROVIDER_DEEPSEEK_API_KEY
+glm                      →  PROVIDER_GLM_API_KEY
+my-custom                →  PROVIDER_MY_CUSTOM_API_KEY  (hyphens → underscores)
+opencode-passthrough     →  PROVIDER_OPENCODE_PASSTHROUGH_API_KEY
 ```
 
-> **Key naming convention**: `PROVIDER_<UPPERCASE_NAME>_API_KEY`. Hyphens in provider names become underscores (e.g., `my-custom` → `PROVIDER_MY_CUSTOM_API_KEY`).
+**Rule**: `PROVIDER_` + uppercase name (hyphens → underscores) + `_API_KEY`
 
-#### Known Providers
+**What happens if a provider key is missing?**
+The proxy falls back to the client's `x-api-key` / `Authorization: Bearer` key. This is called **passthrough mode** — useful when users bring their own API keys.
 
-These providers have hardcoded base URLs — you only need to add an API key:
+#### Proxy Authentication — `ANTHROPIC_API_KEY`
+
+| Scenario | Behavior |
+|----------|----------|
+| `ANTHROPIC_API_KEY` **is set** | Client must send matching key via `x-api-key` header. Unauthorized requests get `401`. |
+| `ANTHROPIC_API_KEY` **not set** | Proxy accepts all requests (no auth). Only use in trusted networks! |
+
+> ⚠️ **Always set `ANTHROPIC_API_KEY`** if your proxy is publicly accessible. Otherwise anyone who discovers your Worker URL can use your API keys.
+
+#### Global Environment Variables
+
+Set these in Dashboard as **Plaintext Variables** (not Secrets):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PROVIDERS` | Multi-provider config (JSON) — enables multi-provider mode | *(not set = legacy mode)* |
+| `LOG_LEVEL` | `WARNING` or `DEBUG` | `WARNING` |
+| `MAX_TOKENS_LIMIT` | Maximum tokens per response | `16384` |
+| `MIN_TOKENS_LIMIT` | Minimum tokens per response | `4096` |
+| `REQUEST_TIMEOUT` | Default request timeout in seconds | `90` |
+
+Set these as **Secrets**:
+
+| Variable | Description | Required? |
+|----------|-------------|-----------|
+| `ANTHROPIC_API_KEY` | Proxy-level auth key (clients must send this to access proxy) | Recommended |
+| `PROVIDER_<NAME>_API_KEY` | Per-provider API keys (one for each provider in your config) | Yes, per provider |
+
+> **💡 Log Levels:**
+> - `WARNING` (default): Only logs errors and routing diagnostics. Safe for production.
+> - `DEBUG`: Logs full request/response content including user prompts. **Never use in production with sensitive data.**
+
+#### Built-in Providers
+
+These 14 providers have hardcoded base URLs — you only need an API key:
 
 | Name | Base URL | Protocol |
-| --- | --- | --- |
+|------|----------|----------|
 | `openai` | `https://api.openai.com/v1` | openai |
 | `openrouter` | `https://openrouter.ai/api/v1` | openai |
 | `deepseek` | `https://api.deepseek.com/v1` | openai |
@@ -155,84 +276,67 @@ These providers have hardcoded base URLs — you only need to add an API key:
 | `mistral` | `https://api.mistral.ai/v1` | openai |
 | `together` | `https://api.together.xyz/v1` | openai |
 
-You can also define **custom providers** with a `baseUrl`:
+For any provider **not** in this list, specify `baseUrl` in the config:
 
-```jsonc
+```json
 {
-  "default": "my-custom",
+  "default": "my-llm",
   "providers": {
-    "my-custom": {
-      "baseUrl": "https://my-api.example.com/v1",
-      "protocol": "openai",
-      "headers": { "X-Custom-Header": "value" }
+    "my-llm": {
+      "baseUrl": "https://api.my-llm-service.com/v1",
+      "protocol": "openai"
     }
   }
 }
 ```
 
-#### PROVIDERS JSON Reference
+---
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `default` | `string` | **Required.** Provider name for unmatched models |
-| `routing` | `Record<string, string>` | Glob pattern → provider name (first match wins) |
-| `providers` | `Record<string, ProviderConfig>` | Per-provider configuration overrides |
-
-**ProviderConfig fields** (all optional for known providers):
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `baseUrl` | `string` | Override base URL (required for custom providers) |
-| `protocol` | `"openai" \| "anthropic"` | API protocol (defaults from registry) |
-| `timeout` | `number` | Request timeout in seconds |
-| `headers` | `Record<string, string>` | Additional HTTP headers |
-| `modelMapping` | `Record<string, string>` | Model keyword mapping (e.g., `{"opus": "gpt-4o"}`) |
-
-#### API Key Resolution
-
-For each request, after routing to a provider:
-
-1. **Provider key** (`PROVIDER_<NAME>_API_KEY`) → use it (managed mode)
-2. **No provider key** → passthrough client's API key
-
-This allows mixed setups: some providers with server-managed keys, others with client key passthrough.
-
-#### Global Environment Variables
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `PROVIDERS` | Multi-provider config (JSON string) | — (legacy mode) |
-| `ANTHROPIC_API_KEY` | Optional (Secret) proxy-level auth key | Accepts any key |
-| `MAX_TOKENS_LIMIT` | Maximum token limit | `16384` |
-| `MIN_TOKENS_LIMIT` | Minimum token limit | `4096` |
-| `REQUEST_TIMEOUT` | Default request timeout (seconds) | `90` |
-| `LOG_LEVEL` | Log verbosity (`WARNING` / `DEBUG`) | `WARNING` |
-
-> **💡 Debug Logging:** Set `LOG_LEVEL=DEBUG` to enable detailed request/response logging (raw content, streaming deltas, provider routing). Useful for troubleshooting. Keep `WARNING` in production to avoid log costs.
-
-#### Legacy Mode (Single Provider)
-
-If `PROVIDERS` is **not set**, the proxy runs in legacy single-provider mode using these variables:
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | Backend API key (leave unset for passthrough) | — |
-| `OPENAI_BASE_URL` | API base URL | `https://api.openai.com/v1` |
-| `PASSTHROUGH_MODELS` | Comma-separated model prefixes for Anthropic passthrough | — |
-| `ENABLE_MODEL_MAPPING` | Enable Claude→provider model mapping | `false` |
-| `BIG_MODEL` | Opus mapping target | `gpt-4o` |
-| `MIDDLE_MODEL` | Sonnet mapping target | `gpt-4o` |
-| `SMALL_MODEL` | Haiku mapping target | `gpt-4o-mini` |
-| `AZURE_API_VERSION` | Azure OpenAI API version | — |
-| `CUSTOM_HEADERS` | Custom HTTP headers (JSON string) | — |
-
-### 📡 Provider Examples
+### 📡 Complete Examples
 
 <details>
-<summary><b>Multi-Provider: OpenAI + DeepSeek + GLM</b></summary>
+<summary><b>Example 1: OpenCode default + MiniMax passthrough + OpenRouter for Qwen</b></summary>
 
-Set `PROVIDERS` (plaintext):
+**Scenario**: Default models go to OpenCode, MiniMax models use Anthropic passthrough via OpenCode, Qwen 3.6+ goes to OpenRouter.
 
+**PROVIDERS** (Plaintext Variable):
+```json
+{
+  "default": "opencode",
+  "routing": {
+    "minimax*": "opencode-passthrough",
+    "qwen/qwen3.6-plus": "openrouter"
+  },
+  "providers": {
+    "opencode": {},
+    "opencode-passthrough": {
+      "baseUrl": "https://opencode.ai/zen/go/v1",
+      "protocol": "anthropic"
+    },
+    "openrouter": {}
+  }
+}
+```
+
+**Secrets**:
+```
+PROVIDER_OPENCODE_API_KEY              = your-opencode-key
+PROVIDER_OPENCODE_PASSTHROUGH_API_KEY  = your-opencode-key
+PROVIDER_OPENROUTER_API_KEY            = your-openrouter-key
+ANTHROPIC_API_KEY                      = my-proxy-password
+```
+
+**How it routes**:
+- `minimax-abc` → matches `minimax*` → `opencode-passthrough` (Anthropic protocol)
+- `qwen/qwen3.6-plus` → exact match → `openrouter`
+- `gpt-4o`, `any-other-model` → no match → `opencode` (default)
+
+</details>
+
+<details>
+<summary><b>Example 2: OpenAI + DeepSeek + GLM multi-provider</b></summary>
+
+**PROVIDERS** (Plaintext Variable):
 ```json
 {
   "default": "openai",
@@ -244,19 +348,20 @@ Set `PROVIDERS` (plaintext):
     "openai": {
       "modelMapping": { "opus": "gpt-4o", "sonnet": "gpt-4o", "haiku": "gpt-4o-mini" }
     },
-    "glm": {},
+    "glm": { "timeout": 120 },
     "deepseek": {}
   }
 }
 ```
 
-Set secrets: `PROVIDER_OPENAI_API_KEY`, `PROVIDER_GLM_API_KEY`, `PROVIDER_DEEPSEEK_API_KEY`
+**Secrets**: `PROVIDER_OPENAI_API_KEY`, `PROVIDER_GLM_API_KEY`, `PROVIDER_DEEPSEEK_API_KEY`
 
 </details>
 
 <details>
-<summary><b>Multi-Provider: OpenRouter as default + Anthropic passthrough</b></summary>
+<summary><b>Example 3: OpenRouter as default + Anthropic passthrough for Claude models</b></summary>
 
+**PROVIDERS** (Plaintext Variable):
 ```json
 {
   "default": "openrouter",
@@ -268,15 +373,16 @@ Set secrets: `PROVIDER_OPENAI_API_KEY`, `PROVIDER_GLM_API_KEY`, `PROVIDER_DEEPSE
 }
 ```
 
-Set secrets: `PROVIDER_OPENROUTER_API_KEY`, `PROVIDER_ANTHROPIC_API_KEY`
+**Secrets**: `PROVIDER_OPENROUTER_API_KEY`, `PROVIDER_ANTHROPIC_API_KEY`
 
 </details>
 
 <details>
-<summary><b>Multi-Provider: OpenRouter with slash-style model routing</b></summary>
+<summary><b>Example 4: OpenRouter with slash-style models (qwen/qwen-3.6)</b></summary>
 
-OpenRouter uses `vendor/model` format (e.g., `qwen/qwen-3.6`, `openai/gpt-4o`). The proxy handles slashes in model names seamlessly:
+OpenRouter uses `vendor/model` format. The proxy handles slashes in model names seamlessly:
 
+**PROVIDERS** (Plaintext Variable):
 ```json
 {
   "default": "openrouter",
@@ -295,98 +401,55 @@ OpenRouter uses `vendor/model` format (e.g., `qwen/qwen-3.6`, `openai/gpt-4o`). 
 }
 ```
 
-- Models with `/` prefix (e.g., `qwen/qwen-3.6`) → OpenRouter
-- Models without `/` prefix (e.g., `qwen-turbo`) → native provider
-- To strip the vendor prefix for a native provider, use `modelMapping`:
+- `qwen/qwen-3.6` → matches `qwen/*` → OpenRouter
+- `qwen-turbo` → matches `qwen-*` → native Qwen provider
 
+To strip vendor prefix for native providers, use `modelMapping`:
 ```json
-{
-  "default": "openrouter",
-  "routing": { "qwen/*": "qwen" },
-  "providers": {
-    "openrouter": {},
-    "qwen": {
-      "modelMapping": { "qwen/qwen-3.6": "qwen-3.6" }
-    }
-  }
+"qwen": {
+  "modelMapping": { "qwen/qwen-3.6": "qwen-3.6" }
 }
 ```
 
 </details>
 
 <details>
-<summary><b>Single Provider: GLM 5.1 (legacy mode)</b></summary>
+<summary><b>Example 5: Single provider — GLM (legacy mode, no PROVIDERS needed)</b></summary>
 
-No `PROVIDERS` needed — use legacy env vars:
+If you only need one provider, skip `PROVIDERS` entirely:
 
+**Plaintext Variables**:
 ```
 OPENAI_BASE_URL = https://open.bigmodel.cn/api/paas/v4
 ```
 
-Client key is forwarded to GLM. Automatically converts `reasoning_content` to Claude thinking blocks.
+**Secrets**: None needed (client key is forwarded to GLM)
 
 </details>
 
 <details>
-<summary><b>Single Provider: OpenAI with model mapping (legacy mode)</b></summary>
+<summary><b>Example 6: Azure OpenAI (legacy mode)</b></summary>
 
+**Plaintext Variables**:
 ```
-OPENAI_BASE_URL = https://api.openai.com/v1
+OPENAI_BASE_URL      = https://your-resource.openai.azure.com/openai/deployments/your-deployment
 ENABLE_MODEL_MAPPING = true
-BIG_MODEL = gpt-4o
-MIDDLE_MODEL = gpt-4o
-SMALL_MODEL = gpt-4o-mini
+BIG_MODEL            = gpt-4
+MIDDLE_MODEL         = gpt-4
+SMALL_MODEL          = gpt-35-turbo
+AZURE_API_VERSION    = 2024-02-15-preview
 ```
 
-Set secret: `OPENAI_API_KEY`
+**Secrets**: `OPENAI_API_KEY`
 
 </details>
 
-<details>
-<summary><b>Single Provider: Azure OpenAI (legacy mode)</b></summary>
-
-```
-OPENAI_BASE_URL = https://your-resource.openai.azure.com/openai/deployments/your-deployment
-ENABLE_MODEL_MAPPING = true
-BIG_MODEL = gpt-4
-MIDDLE_MODEL = gpt-4
-SMALL_MODEL = gpt-35-turbo
-```
-
-Set secrets: `OPENAI_API_KEY`, `AZURE_API_VERSION`
-
-</details>
-
-<details>
-<summary><b>Hybrid: OpenCode Go — GLM + MiniMax (legacy mode)</b></summary>
-
-```
-OPENAI_BASE_URL = https://opencode.ai/zen/go/v1
-PASSTHROUGH_MODELS = minimax
-```
-
-GLM models → OpenAI conversion, MiniMax models → Anthropic passthrough.
-
-</details>
-
-### 🖥️ Using with Claude Code
-
-```bash
-# Multi-provider mode — client key forwarded to resolved provider
-ANTHROPIC_BASE_URL=https://your-worker.workers.dev \
-ANTHROPIC_API_KEY="your-api-key" \
-claude
-
-# If ANTHROPIC_API_KEY validation is enabled on the proxy
-ANTHROPIC_BASE_URL=https://your-worker.workers.dev \
-ANTHROPIC_API_KEY="your-matching-proxy-key" \
-claude
-```
+---
 
 ### 📋 API Endpoints
 
 | Method | Path | Description | Auth Required |
-| --- | --- | --- | --- |
+|--------|------|-------------|---------------|
 | GET | `/` | Proxy info | No |
 | GET | `/health` | Health check | No |
 | POST | `/v1/messages` | Chat completions (proxy) | Yes |
@@ -394,19 +457,28 @@ claude
 
 ### 🔄 Migration from Legacy to Multi-Provider
 
-If you're upgrading from a single-provider setup, **no changes are required** — your existing config continues to work.
+Your existing config continues to work — **no changes required**. To opt into multi-provider:
 
-To opt into multi-provider mode, add a `PROVIDERS` JSON variable:
-
-```jsonc
-// Before (legacy):
-// OPENAI_BASE_URL = https://open.bigmodel.cn/api/paas/v4
-// OPENAI_API_KEY = sk-xxx
-
-// After (multi-provider):
-// PROVIDERS = {"default":"glm","providers":{"glm":{}}}
-// PROVIDER_GLM_API_KEY = sk-xxx  (secret)
 ```
+Before (legacy):                          After (multi-provider):
+─────────────────                         ─────────────────────
+OPENAI_BASE_URL = https://xxx/v1          PROVIDERS = {"default":"glm","providers":{"glm":{}}}
+OPENAI_API_KEY  = sk-xxx                  PROVIDER_GLM_API_KEY = sk-xxx  (secret)
+```
+
+#### Legacy Mode Variables (only when PROVIDERS is not set)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | Backend API key (leave unset for passthrough) | — |
+| `OPENAI_BASE_URL` | API base URL | `https://api.openai.com/v1` |
+| `PASSTHROUGH_MODELS` | Comma-separated model prefixes for Anthropic passthrough | — |
+| `ENABLE_MODEL_MAPPING` | Enable Claude→provider model mapping | `false` |
+| `BIG_MODEL` | Opus mapping target | `gpt-4o` |
+| `MIDDLE_MODEL` | Sonnet mapping target | same as `BIG_MODEL` |
+| `SMALL_MODEL` | Haiku mapping target | `gpt-4o-mini` |
+| `AZURE_API_VERSION` | Azure OpenAI API version | — |
+| `CUSTOM_HEADERS` | Custom HTTP headers (JSON string) | — |
 
 ### 🛠️ Development
 
@@ -441,6 +513,18 @@ src/
     └── response.ts             # OpenAI → Claude response conversion
 ```
 
+### ❓ Troubleshooting
+
+| Problem | Cause | Solution |
+|---------|-------|----------|
+| `401` with generic error message | Provider API key missing or wrong | Check `PROVIDER_<NAME>_API_KEY` is set correctly as a Secret |
+| All requests go to `api.openai.com` | `PROVIDERS` env var not set | Add `PROVIDERS` JSON in Dashboard (plaintext, not secret) |
+| `Invalid PROVIDERS JSON` | BOM or extra whitespace in JSON | Re-paste the JSON cleanly — the proxy strips BOM but check for typos |
+| `authentication_error` 401 | Proxy auth key mismatch | Client's `ANTHROPIC_API_KEY` must match the proxy's `ANTHROPIC_API_KEY` secret |
+| Model routes to wrong provider | Routing order issue | Routing rules are checked top-to-bottom, first match wins |
+
+> **Debug tip**: Set `LOG_LEVEL=DEBUG` temporarily, then use `wrangler tail` to see real-time logs including routing decisions and request/response content.
+
 ---
 
 ### 🔒 Security Notes
@@ -473,7 +557,7 @@ src/
 - **双协议支持**：OpenAI 兼容转换 + Anthropic 直转
 - **每个供应商独立 API Key** — `PROVIDER_<NAME>_API_KEY` 作为密钥存储，或客户端 key 透传
 - **每个供应商独立模型映射** — 将 Claude 模型名 (opus/sonnet/haiku) 映射为供应商模型
-- 部署在 Cloudflare 全球边缘网络，低延迟
+- 部署在 Cloudflare 全球边缘网络，启用 [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement/) 绕过区域限制
 - API Key 常量时间比较，防止时序攻击
 - **完全向后兼容** — 旧的单供应商配置继续有效
 
@@ -507,33 +591,30 @@ src/
   后端 API  后端 API
 ```
 
-### 🚀 部署
+### 🚀 快速开始
 
-#### 方式一：Fork + Cloudflare 自动部署（推荐）
+#### 第一步：部署
+
+**方式 A：Fork + Cloudflare 自动部署（推荐）**
 
 1. **Fork 本仓库** 到你的 GitHub 账号
 2. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/) → **Workers & Pages** → **Create**
 3. 选择 **Import a repository**，连接 GitHub 并选择 fork 的仓库
-4. 构建配置保持默认（`npm run build` / `npm run deploy`）
-5. 在 Worker 的 **Settings → Variables and Secrets** 中配置（见下方[配置](#-配置-1)）
-6. 所有配置通过 Dashboard 完成，同步上游更新不会覆盖你的配置
+4. 保持默认构建配置 — 点击 **Deploy**
+5. 在 Worker 的 **Settings → Variables and Secrets** 中配置环境变量（见第二步）
 
-#### 方式二：Wrangler CLI
+> ℹ️ 所有配置都在 Dashboard 中完成。同步上游更新**不会**覆盖你的配置（`keep_vars = true`）。
+
+**方式 B：Wrangler CLI**
 
 ```bash
 git clone https://github.com/randomspace77/claude-code-proxy-cf-workers.git
 cd claude-code-proxy-cf-workers
 npm install
-
-# 设置供应商 API Key（密钥）
-wrangler secret put PROVIDER_OPENAI_API_KEY
-wrangler secret put PROVIDER_DEEPSEEK_API_KEY  # 等等
-wrangler secret put ANTHROPIC_API_KEY          # 可选，代理级认证
-
 npm run deploy
 ```
 
-#### 方式三：本地开发
+**方式 C：本地开发**
 
 ```bash
 cp .env.example .dev.vars   # 编辑填入 API Key
@@ -541,27 +622,95 @@ npm install
 npm run dev
 ```
 
-### 🔧 配置
+#### 第二步：配置环境变量
 
-所有配置通过 **Cloudflare Dashboard**（Settings → Variables and Secrets）完成。`wrangler.toml` 中不包含 `[vars]`，确保部署不会覆盖你的配置。
+部署完成后，进入 **Cloudflare Dashboard → 你的 Worker → Settings → Variables and Secrets**。
 
-#### 多供应商模式（推荐）
+你需要设置最多 **3 样东西**：
 
-设置 `PROVIDERS` 环境变量（明文 JSON）来配置多供应商和模型路由：
+| # | 内容 | 类型 | 用途 |
+|---|------|------|------|
+| 1 | `PROVIDERS` | 明文变量 | 告诉代理使用哪些供应商、如何路由模型 |
+| 2 | `PROVIDER_<NAME>_API_KEY` | 密钥 (Secret) | 每个供应商的 API Key（每个供应商一个） |
+| 3 | `ANTHROPIC_API_KEY` | 密钥 (Secret) | *（可选）* 保护代理不被未授权访问 |
+
+**配置示例**（OpenAI 为默认 + DeepSeek 处理 deepseek 模型）：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Cloudflare Dashboard → Settings → Variables and Secrets         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📄 明文变量 (Plaintext):                                       │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ PROVIDERS = {                                           │    │
+│  │   "default": "openai",                                  │    │
+│  │   "routing": { "deepseek-*": "deepseek" },              │    │
+│  │   "providers": {                                        │    │
+│  │     "openai": {},                                       │    │
+│  │     "deepseek": {}                                      │    │
+│  │   }                                                     │    │
+│  │ }                                                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  🔐 密钥 (Secrets):                                             │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ PROVIDER_OPENAI_API_KEY    = sk-xxxxx                   │    │
+│  │ PROVIDER_DEEPSEEK_API_KEY  = sk-xxxxx                   │    │
+│  │ ANTHROPIC_API_KEY          = my-proxy-password           │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+或使用命令行：
+```bash
+# 在 Dashboard 中设置 PROVIDERS 明文变量后：
+wrangler secret put PROVIDER_OPENAI_API_KEY
+wrangler secret put PROVIDER_DEEPSEEK_API_KEY
+wrangler secret put ANTHROPIC_API_KEY   # 可选
+```
+
+#### 第三步：连接 Claude Code
+
+```bash
+ANTHROPIC_BASE_URL=https://your-worker.your-subdomain.workers.dev \
+ANTHROPIC_API_KEY="my-proxy-password" \
+claude
+```
+
+> 如果代理未设置 `ANTHROPIC_API_KEY`，使用任意非空字符串作为 `ANTHROPIC_API_KEY` 即可。
+
+---
+
+### 🔧 配置参考
+
+#### 理解两种模式
+
+| | 多供应商模式 | 旧模式 |
+|---|---|---|
+| **何时** | 设置了 `PROVIDERS` 环境变量 | 未设置 `PROVIDERS` |
+| **能力** | 多个供应商、glob 路由、每个供应商独立密钥 | 仅单个供应商 |
+| **推荐** | ✅ 是 | 适用于简单的单供应商场景 |
+
+#### 多供应商模式 — `PROVIDERS` JSON
+
+`PROVIDERS` 变量是一个 JSON 字符串，包含三个字段：
 
 ```jsonc
 {
+  // 必需：未匹配任何路由规则的模型使用哪个供应商
   "default": "openai",
+
+  // 可选：将特定模型路由到特定供应商（从上到下，首次匹配生效）
   "routing": {
-    "glm-*": "glm",
-    "deepseek-*": "deepseek",
-    "claude-*": "anthropic",
-    "gpt-*": "openai",
-    "o1-*": "openai",
-    "o3-*": "openai",
-    "gemini-*": "gemini",
-    "qwen-*": "qwen"
+    "glm-*": "glm",           // 所有以 "glm-" 开头的模型 → glm 供应商
+    "deepseek-*": "deepseek", // deepseek-chat, deepseek-coder 等
+    "claude-*": "anthropic",  // 直转到 Anthropic
+    "qwen/*": "openrouter"    // 斜杠格式模型（如 qwen/qwen-3.6）
   },
+
+  // 可选：每个供应商的配置覆盖
   "providers": {
     "openai": {
       "modelMapping": { "opus": "gpt-4o", "sonnet": "gpt-4o", "haiku": "gpt-4o-mini" }
@@ -569,29 +718,85 @@ npm run dev
     "glm": { "timeout": 120 },
     "deepseek": {},
     "anthropic": {},
-    "gemini": {},
-    "qwen": {}
+    "openrouter": {}
   }
 }
 ```
 
-然后为每个供应商设置 API Key（**密钥**）：
+**路由工作原理：**
+1. 客户端发送请求，`model: "deepseek-chat"`
+2. 代理从上到下检查 `routing` 中的每条规则
+3. `"deepseek-*"` 匹配 → 路由到 `deepseek` 供应商
+4. 如果没有匹配 → 使用 `default` 供应商
 
-```bash
-wrangler secret put PROVIDER_OPENAI_API_KEY
-wrangler secret put PROVIDER_GLM_API_KEY
-wrangler secret put PROVIDER_DEEPSEEK_API_KEY
-# ...
+**ProviderConfig 字段**（内置供应商可全部省略）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `baseUrl` | `string` | 覆盖供应商 API URL（自定义供应商必须提供） |
+| `protocol` | `"openai"` \| `"anthropic"` | API 格式 — `openai` 做 Claude↔OpenAI 转换，`anthropic` 直转 |
+| `timeout` | `number` | 请求超时秒数（覆盖全局 `REQUEST_TIMEOUT`） |
+| `headers` | `Record<string, string>` | 发送给该供应商的额外 HTTP 头 |
+| `modelMapping` | `Record<string, string>` | 模型关键词映射 |
+| `azureApiVersion` | `string` | Azure OpenAI API 版本 |
+
+#### API Key 配置（重要！）
+
+每个供应商需要自己的 API Key，存储为 **Cloudflare Secret**：
+
+```
+配置中的供应商名  →  Dashboard 中的 Secret 名
+─────────────────────────────────────────────
+openai           →  PROVIDER_OPENAI_API_KEY
+deepseek         →  PROVIDER_DEEPSEEK_API_KEY
+glm              →  PROVIDER_GLM_API_KEY
+my-custom        →  PROVIDER_MY_CUSTOM_API_KEY  (连字符 → 下划线)
+opencode-pt      →  PROVIDER_OPENCODE_PT_API_KEY
 ```
 
-> **密钥命名规则**：`PROVIDER_<大写名称>_API_KEY`。供应商名中的连字符变为下划线（如 `my-custom` → `PROVIDER_MY_CUSTOM_API_KEY`）。
+**命名规则**：`PROVIDER_` + 大写名称（连字符变下划线）+ `_API_KEY`
+
+**如果供应商 Key 未设置怎么办？**
+代理会回退到客户端的 `x-api-key` / `Authorization: Bearer` 密钥。这叫**透传模式** — 适用于让用户自带 API Key 的场景。
+
+#### 代理认证 — `ANTHROPIC_API_KEY`
+
+| 场景 | 行为 |
+|------|------|
+| `ANTHROPIC_API_KEY` **已设置** | 客户端必须通过 `x-api-key` 发送匹配的密钥，否则返回 `401` |
+| `ANTHROPIC_API_KEY` **未设置** | 代理接受所有请求（无认证）。仅在可信网络中使用！ |
+
+> ⚠️ 如果你的代理是公网可访问的，**务必设置 `ANTHROPIC_API_KEY`**。否则任何发现你 Worker URL 的人都能使用你的 API Key。
+
+#### 全局环境变量
+
+在 Dashboard 中设为**明文变量**（不是 Secret）：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PROVIDERS` | 多供应商配置 (JSON) — 启用多供应商模式 | *（未设置 = 旧模式）* |
+| `LOG_LEVEL` | `WARNING` 或 `DEBUG` | `WARNING` |
+| `MAX_TOKENS_LIMIT` | 最大 token 数 | `16384` |
+| `MIN_TOKENS_LIMIT` | 最小 token 数 | `4096` |
+| `REQUEST_TIMEOUT` | 默认请求超时秒数 | `90` |
+
+设为**密钥 (Secret)**：
+
+| 变量 | 说明 | 是否必需 |
+|------|------|----------|
+| `ANTHROPIC_API_KEY` | 代理级认证密钥（客户端需发送此密钥访问代理） | 推荐设置 |
+| `PROVIDER_<NAME>_API_KEY` | 每个供应商的 API Key | 每个供应商都需要 |
+
+> **💡 日志级别：**
+> - `WARNING`（默认）：仅记录错误和路由诊断信息。生产环境安全使用。
+> - `DEBUG`：记录完整的请求/响应内容（包括用户提示词）。**生产环境切勿使用。**
 
 #### 内置供应商
 
-以下供应商已预置 URL，只需添加 API Key：
+以下 14 个供应商已预置 URL，只需添加 API Key：
 
 | 名称 | Base URL | 协议 |
-| --- | --- | --- |
+|------|----------|------|
 | `openai` | `https://api.openai.com/v1` | openai |
 | `openrouter` | `https://openrouter.ai/api/v1` | openai |
 | `deepseek` | `https://api.deepseek.com/v1` | openai |
@@ -607,84 +812,67 @@ wrangler secret put PROVIDER_DEEPSEEK_API_KEY
 | `mistral` | `https://api.mistral.ai/v1` | openai |
 | `together` | `https://api.together.xyz/v1` | openai |
 
-也可定义**自定义供应商**：
+不在列表中的供应商需要指定 `baseUrl`：
 
-```jsonc
+```json
 {
-  "default": "my-custom",
+  "default": "my-llm",
   "providers": {
-    "my-custom": {
-      "baseUrl": "https://my-api.example.com/v1",
-      "protocol": "openai",
-      "headers": { "X-Custom-Header": "value" }
+    "my-llm": {
+      "baseUrl": "https://api.my-llm-service.com/v1",
+      "protocol": "openai"
     }
   }
 }
 ```
 
-#### PROVIDERS JSON 参考
+---
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `default` | `string` | **必需。** 未匹配模型的默认供应商 |
-| `routing` | `Record<string, string>` | glob 模式 → 供应商名（先匹配先命中） |
-| `providers` | `Record<string, ProviderConfig>` | 每个供应商的配置覆盖 |
-
-**ProviderConfig 字段**（内置供应商可全部省略）：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `baseUrl` | `string` | 覆盖 Base URL（自定义供应商必须提供） |
-| `protocol` | `"openai" \| "anthropic"` | API 协议（内置供应商有默认值） |
-| `timeout` | `number` | 请求超时（秒） |
-| `headers` | `Record<string, string>` | 额外 HTTP 头 |
-| `modelMapping` | `Record<string, string>` | 模型关键词映射（如 `{"opus": "gpt-4o"}`） |
-
-#### API Key 解析
-
-每次请求路由到供应商后：
-
-1. **供应商密钥** (`PROVIDER_<NAME>_API_KEY`) → 使用该密钥（托管模式）
-2. **无供应商密钥** → 透传客户端 API Key
-
-支持混合配置：部分供应商使用服务端密钥，其他透传客户端密钥。
-
-#### 全局环境变量
-
-| 变量 | 说明 | 默认值 |
-| --- | --- | --- |
-| `PROVIDERS` | 多供应商配置 (JSON) | — (旧模式) |
-| `ANTHROPIC_API_KEY` | 可选 (Secret) 代理级认证密钥 | 接受任意 Key |
-| `MAX_TOKENS_LIMIT` | 最大 token 数 | `16384` |
-| `MIN_TOKENS_LIMIT` | 最小 token 数 | `4096` |
-| `REQUEST_TIMEOUT` | 默认请求超时 (秒) | `90` |
-| `LOG_LEVEL` | 日志级别（`WARNING` / `DEBUG`） | `WARNING` |
-
-> **💡 调试日志：** 设置 `LOG_LEVEL=DEBUG` 可启用详细的请求/响应日志（原始内容、流式数据、供应商路由）。适用于排查问题。生产环境建议保持 `WARNING` 以避免日志费用。
-
-#### 旧模式（单供应商）
-
-如果未设置 `PROVIDERS`，代理以旧的单供应商模式运行：
-
-| 变量 | 说明 | 默认值 |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | 后端 API Key（不设置则透传） | — |
-| `OPENAI_BASE_URL` | API 基础 URL | `https://api.openai.com/v1` |
-| `PASSTHROUGH_MODELS` | 逗号分隔的模型前缀，匹配的走 Anthropic 直转 | — |
-| `ENABLE_MODEL_MAPPING` | 启用 Claude→供应商模型映射 | `false` |
-| `BIG_MODEL` | Opus 映射目标 | `gpt-4o` |
-| `MIDDLE_MODEL` | Sonnet 映射目标 | `gpt-4o` |
-| `SMALL_MODEL` | Haiku 映射目标 | `gpt-4o-mini` |
-| `AZURE_API_VERSION` | Azure OpenAI API 版本 | — |
-| `CUSTOM_HEADERS` | 自定义 HTTP 头 (JSON) | — |
-
-### 📡 供应商配置示例
+### 📡 完整配置示例
 
 <details>
-<summary><b>多供应商：OpenAI + DeepSeek + GLM</b></summary>
+<summary><b>示例 1：OpenCode 默认 + MiniMax 直转 + OpenRouter 处理 Qwen</b></summary>
 
-设置 `PROVIDERS`（明文）：
+**场景**：默认模型走 OpenCode，MiniMax 模型通过 OpenCode 走 Anthropic 直转，Qwen 3.6+ 走 OpenRouter。
 
+**PROVIDERS**（明文变量）：
+```json
+{
+  "default": "opencode",
+  "routing": {
+    "minimax*": "opencode-passthrough",
+    "qwen/qwen3.6-plus": "openrouter"
+  },
+  "providers": {
+    "opencode": {},
+    "opencode-passthrough": {
+      "baseUrl": "https://opencode.ai/zen/go/v1",
+      "protocol": "anthropic"
+    },
+    "openrouter": {}
+  }
+}
+```
+
+**密钥 (Secrets)**：
+```
+PROVIDER_OPENCODE_API_KEY              = 你的 OpenCode Key
+PROVIDER_OPENCODE_PASSTHROUGH_API_KEY  = 你的 OpenCode Key
+PROVIDER_OPENROUTER_API_KEY            = 你的 OpenRouter Key
+ANTHROPIC_API_KEY                      = 你的代理密码
+```
+
+**路由说明**：
+- `minimax-abc` → 匹配 `minimax*` → `opencode-passthrough`（Anthropic 协议）
+- `qwen/qwen3.6-plus` → 精确匹配 → `openrouter`
+- `gpt-4o` 或其他模型 → 无匹配 → `opencode`（默认）
+
+</details>
+
+<details>
+<summary><b>示例 2：OpenAI + DeepSeek + GLM 多供应商</b></summary>
+
+**PROVIDERS**（明文变量）：
 ```json
 {
   "default": "openai",
@@ -696,19 +884,20 @@ wrangler secret put PROVIDER_DEEPSEEK_API_KEY
     "openai": {
       "modelMapping": { "opus": "gpt-4o", "sonnet": "gpt-4o", "haiku": "gpt-4o-mini" }
     },
-    "glm": {},
+    "glm": { "timeout": 120 },
     "deepseek": {}
   }
 }
 ```
 
-设置密钥：`PROVIDER_OPENAI_API_KEY`、`PROVIDER_GLM_API_KEY`、`PROVIDER_DEEPSEEK_API_KEY`
+**密钥**：`PROVIDER_OPENAI_API_KEY`、`PROVIDER_GLM_API_KEY`、`PROVIDER_DEEPSEEK_API_KEY`
 
 </details>
 
 <details>
-<summary><b>多供应商：OpenRouter 默认 + Anthropic 直转</b></summary>
+<summary><b>示例 3：OpenRouter 默认 + Anthropic 直转 Claude 模型</b></summary>
 
+**PROVIDERS**（明文变量）：
 ```json
 {
   "default": "openrouter",
@@ -720,15 +909,16 @@ wrangler secret put PROVIDER_DEEPSEEK_API_KEY
 }
 ```
 
-设置密钥：`PROVIDER_OPENROUTER_API_KEY`、`PROVIDER_ANTHROPIC_API_KEY`
+**密钥**：`PROVIDER_OPENROUTER_API_KEY`、`PROVIDER_ANTHROPIC_API_KEY`
 
 </details>
 
 <details>
-<summary><b>多供应商：OpenRouter 含斜杠格式模型路由</b></summary>
+<summary><b>示例 4：OpenRouter 含斜杠格式模型（qwen/qwen-3.6）</b></summary>
 
-OpenRouter 使用 `厂商/模型` 格式（如 `qwen/qwen-3.6`、`openai/gpt-4o`）。代理可无缝处理含斜杠的模型名：
+OpenRouter 使用 `厂商/模型` 格式。代理可无缝处理含斜杠的模型名：
 
+**PROVIDERS**（明文变量）：
 ```json
 {
   "default": "openrouter",
@@ -747,83 +937,55 @@ OpenRouter 使用 `厂商/模型` 格式（如 `qwen/qwen-3.6`、`openai/gpt-4o`
 }
 ```
 
-- 带 `/` 前缀的模型（如 `qwen/qwen-3.6`）→ OpenRouter
-- 不带 `/` 前缀的模型（如 `qwen-turbo`）→ 原生供应商
-- 若需去除厂商前缀发送给原生供应商，可用 `modelMapping`：
+- `qwen/qwen-3.6` → 匹配 `qwen/*` → OpenRouter
+- `qwen-turbo` → 匹配 `qwen-*` → 原生 Qwen 供应商
 
+若需去除厂商前缀，可用 `modelMapping`：
 ```json
-{
-  "default": "openrouter",
-  "routing": { "qwen/*": "qwen" },
-  "providers": {
-    "openrouter": {},
-    "qwen": {
-      "modelMapping": { "qwen/qwen-3.6": "qwen-3.6" }
-    }
-  }
+"qwen": {
+  "modelMapping": { "qwen/qwen-3.6": "qwen-3.6" }
 }
 ```
 
 </details>
 
 <details>
-<summary><b>单供应商：GLM 5.1（旧模式）</b></summary>
+<summary><b>示例 5：单供应商 — GLM（旧模式，无需 PROVIDERS）</b></summary>
 
-无需设置 `PROVIDERS`，使用旧变量：
+只需一个供应商时，完全不用设置 `PROVIDERS`：
 
+**明文变量**：
 ```
 OPENAI_BASE_URL = https://open.bigmodel.cn/api/paas/v4
 ```
 
-客户端 key 透传给 GLM。自动将 `reasoning_content` 转换为 Claude 思维块。
+**密钥**：无需设置（客户端 key 透传给 GLM）
 
 </details>
 
 <details>
-<summary><b>单供应商：OpenAI + 模型映射（旧模式）</b></summary>
+<summary><b>示例 6：Azure OpenAI（旧模式）</b></summary>
 
+**明文变量**：
 ```
-OPENAI_BASE_URL = https://api.openai.com/v1
+OPENAI_BASE_URL      = https://your-resource.openai.azure.com/openai/deployments/your-deployment
 ENABLE_MODEL_MAPPING = true
-BIG_MODEL = gpt-4o
-MIDDLE_MODEL = gpt-4o
-SMALL_MODEL = gpt-4o-mini
+BIG_MODEL            = gpt-4
+MIDDLE_MODEL         = gpt-4
+SMALL_MODEL          = gpt-35-turbo
+AZURE_API_VERSION    = 2024-02-15-preview
 ```
 
-设置密钥：`OPENAI_API_KEY`
+**密钥**：`OPENAI_API_KEY`
 
 </details>
 
-<details>
-<summary><b>混合：OpenCode Go — GLM + MiniMax（旧模式）</b></summary>
-
-```
-OPENAI_BASE_URL = https://opencode.ai/zen/go/v1
-PASSTHROUGH_MODELS = minimax
-```
-
-GLM 模型走 OpenAI 转换，MiniMax 模型走 Anthropic 直转。
-
-</details>
-
-### 🖥️ 使用 Claude Code
-
-```bash
-# 多供应商模式 — 客户端 key 透传给路由到的供应商
-ANTHROPIC_BASE_URL=https://your-worker.workers.dev \
-ANTHROPIC_API_KEY="your-api-key" \
-claude
-
-# 如果代理启用了 ANTHROPIC_API_KEY 验证
-ANTHROPIC_BASE_URL=https://your-worker.workers.dev \
-ANTHROPIC_API_KEY="your-matching-proxy-key" \
-claude
-```
+---
 
 ### 📋 API 端点
 
 | 方法 | 路径 | 说明 | 需要认证 |
-| --- | --- | --- | --- |
+|------|------|------|----------|
 | GET | `/` | 代理信息 | 否 |
 | GET | `/health` | 健康检查 | 否 |
 | POST | `/v1/messages` | 聊天补全（代理） | 是 |
@@ -831,19 +993,28 @@ claude
 
 ### 🔄 从旧版迁移到多供应商
 
-升级自单供应商配置时，**无需任何改动** — 现有配置继续有效。
+现有配置继续有效 — **无需任何改动**。要启用多供应商：
 
-要启用多供应商模式，添加 `PROVIDERS` JSON 变量：
-
-```jsonc
-// 之前（旧模式）：
-// OPENAI_BASE_URL = https://open.bigmodel.cn/api/paas/v4
-// OPENAI_API_KEY = sk-xxx
-
-// 之后（多供应商）：
-// PROVIDERS = {"default":"glm","providers":{"glm":{}}}
-// PROVIDER_GLM_API_KEY = sk-xxx  (密钥)
 ```
+之前（旧模式）：                          之后（多供应商）：
+─────────────                             ─────────────────
+OPENAI_BASE_URL = https://xxx/v1          PROVIDERS = {"default":"glm","providers":{"glm":{}}}
+OPENAI_API_KEY  = sk-xxx                  PROVIDER_GLM_API_KEY = sk-xxx（密钥）
+```
+
+#### 旧模式变量（仅在未设置 PROVIDERS 时有效）
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `OPENAI_API_KEY` | 后端 API Key（不设置则透传） | — |
+| `OPENAI_BASE_URL` | API 基础 URL | `https://api.openai.com/v1` |
+| `PASSTHROUGH_MODELS` | 逗号分隔的模型前缀，匹配的走 Anthropic 直转 | — |
+| `ENABLE_MODEL_MAPPING` | 启用 Claude→供应商模型映射 | `false` |
+| `BIG_MODEL` | Opus 映射目标 | `gpt-4o` |
+| `MIDDLE_MODEL` | Sonnet 映射目标 | 同 `BIG_MODEL` |
+| `SMALL_MODEL` | Haiku 映射目标 | `gpt-4o-mini` |
+| `AZURE_API_VERSION` | Azure OpenAI API 版本 | — |
+| `CUSTOM_HEADERS` | 自定义 HTTP 头 (JSON) | — |
 
 ### 🛠️ 开发
 
@@ -877,6 +1048,18 @@ src/
     ├── request.ts              # Claude → OpenAI 请求转换
     └── response.ts             # OpenAI → Claude 响应转换
 ```
+
+### ❓ 常见问题排查
+
+| 问题 | 原因 | 解决方案 |
+|------|------|----------|
+| `401` 返回通用错误信息 | 供应商 API Key 未设置或错误 | 检查 `PROVIDER_<NAME>_API_KEY` 是否正确设置为 Secret |
+| 所有请求都走 `api.openai.com` | `PROVIDERS` 环境变量未设置 | 在 Dashboard 添加 `PROVIDERS` JSON（明文变量，不是 Secret） |
+| `Invalid PROVIDERS JSON` | JSON 中有 BOM 或多余空白字符 | 重新粘贴 JSON — 代理会自动去除 BOM，但请检查是否有拼写错误 |
+| `authentication_error` 401 | 代理认证密钥不匹配 | 客户端的 `ANTHROPIC_API_KEY` 必须与代理的 `ANTHROPIC_API_KEY` Secret 匹配 |
+| 模型路由到错误的供应商 | 路由顺序问题 | 路由规则从上到下检查，首次匹配生效 |
+
+> **调试技巧**：临时设置 `LOG_LEVEL=DEBUG`，然后用 `wrangler tail` 查看实时日志，包括路由决策和请求/响应内容。
 
 ---
 
