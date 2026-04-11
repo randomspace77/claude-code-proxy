@@ -23,6 +23,18 @@ export function convertOpenAIToClaude(
   const choice = choices[0];
   const message = choice.message;
 
+  // DEBUG: Log raw OpenAI response for diagnosing reasoning/content issues
+  console.log({
+    _tag: "non-stream-response",
+    content: message?.content,
+    content_type: typeof message?.content,
+    reasoning_content: message?.reasoning_content,
+    reasoning_content_type: typeof message?.reasoning_content,
+    tool_calls_count: message?.tool_calls?.length ?? 0,
+    finish_reason: choice.finish_reason,
+    usage: openaiResponse.usage,
+  });
+
   const contentBlocks: Record<string, unknown>[] = [];
 
   // Reasoning/thinking content (e.g. from GLM 5.1 thinking mode)
@@ -197,6 +209,29 @@ export function convertOpenAIStreamToClaude(
           const choice = choices[0];
           const delta = choice.delta ?? {};
           const finishReason = choice.finish_reason;
+
+          // DEBUG: Log streaming deltas for diagnosing content issues
+          if (delta.reasoning_content !== null && delta.reasoning_content !== undefined) {
+            console.log({
+              _tag: "stream-delta",
+              type: "reasoning",
+              length: delta.reasoning_content.length,
+            });
+          }
+          if (delta.content !== null && delta.content !== undefined) {
+            console.log({
+              _tag: "stream-delta",
+              type: "content",
+              length: delta.content.length,
+            });
+          }
+          if (finishReason) {
+            console.log({
+              _tag: "stream-finish",
+              finish_reason: finishReason,
+              usage: chunk.usage,
+            });
+          }
 
           // Reasoning/thinking delta (e.g. from GLM 5.1)
           if (delta.reasoning_content !== null && delta.reasoning_content !== undefined) {
@@ -375,6 +410,16 @@ export function convertOpenAIStreamToClaude(
   });
 
   function emitFinalEvents(controller: ReadableStreamDefaultController<string>) {
+    // DEBUG: Log final streaming state
+    console.log({
+      _tag: "stream-final-state",
+      thinkingBlockStarted,
+      textBlockStarted,
+      toolCallsCount: currentToolCalls.size,
+      finalStopReason,
+      usageData,
+    });
+
     // Close thinking block if it wasn't closed (no text content followed)
     if (thinkingBlockStarted && !textBlockStarted) {
       controller.enqueue(

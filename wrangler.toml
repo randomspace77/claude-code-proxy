@@ -8,6 +8,17 @@ compatibility_flags = ["nodejs_compat"]
 # Without this, `wrangler deploy` would clear all vars not in [vars].
 keep_vars = true
 
+# Observability — enable logs for debugging via Dashboard or `wrangler tail`
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+
 # ============================================================
 # All configuration is done via Cloudflare Dashboard or `wrangler secret put`.
 # Do NOT add [vars] here — they would overwrite Dashboard settings on every deploy.
