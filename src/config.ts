@@ -36,12 +36,14 @@ function parseCustomHeaders(
   raw: string | undefined,
 ): Record<string, string> {
   if (!raw) return {};
+  // Headers that must not be overridden by custom config
+  const blocklist = new Set(["authorization", "api-key", "host"]);
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
       const result: Record<string, string> = {};
       for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof value === "string") {
+        if (typeof value === "string" && !blocklist.has(key.toLowerCase())) {
           result[key] = value;
         }
       }
@@ -90,12 +92,15 @@ export function validateClientApiKey(
 
 /**
  * Constant-time string comparison to prevent timing attacks.
+ * Pads shorter string to prevent length-based side-channel leakage.
  */
 function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  const maxLen = Math.max(a.length, b.length);
+  const paddedA = a.padEnd(maxLen, "\0");
+  const paddedB = b.padEnd(maxLen, "\0");
+  let result = a.length ^ b.length; // non-zero if lengths differ
+  for (let i = 0; i < maxLen; i++) {
+    result |= paddedA.charCodeAt(i) ^ paddedB.charCodeAt(i);
   }
   return result === 0;
 }

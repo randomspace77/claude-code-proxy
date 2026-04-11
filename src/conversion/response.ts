@@ -23,13 +23,14 @@ export function convertOpenAIToClaude(
   const choice = choices[0];
   const message = choice.message;
 
-  // DEBUG: Log raw OpenAI response for diagnosing reasoning/content issues
+  // DEBUG: Log OpenAI response metadata (no user content for privacy)
   console.log({
     _tag: "non-stream-response",
-    content: message?.content,
+    has_content: message?.content !== null && message?.content !== undefined,
     content_type: typeof message?.content,
-    reasoning_content: message?.reasoning_content,
-    reasoning_content_type: typeof message?.reasoning_content,
+    content_length: typeof message?.content === "string" ? message.content.length : 0,
+    has_reasoning: Boolean(message?.reasoning_content),
+    reasoning_length: typeof message?.reasoning_content === "string" ? message.reasoning_content.length : 0,
     tool_calls_count: message?.tool_calls?.length ?? 0,
     finish_reason: choice.finish_reason,
     usage: openaiResponse.usage,
@@ -392,11 +393,12 @@ export function convertOpenAIStreamToClaude(
           }
         }
       } catch (err) {
+        console.error("Streaming conversion error:", err);
         const errorEvent = {
           type: "error",
           error: {
             type: "api_error",
-            message: `Streaming error: ${err instanceof Error ? err.message : String(err)}`,
+            message: "An error occurred while processing the streaming response.",
           },
         };
         controller.enqueue(`event: error\ndata: ${JSON.stringify(errorEvent)}\n\n`);

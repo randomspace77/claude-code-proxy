@@ -94,6 +94,23 @@ describe("loadConfig", () => {
     expect(config.customHeaders).toEqual({});
   });
 
+  it("blocks security-sensitive headers in CUSTOM_HEADERS", () => {
+    const env: Env = {
+      ...minimalEnv,
+      CUSTOM_HEADERS: JSON.stringify({
+        "Authorization": "Bearer evil",
+        "api-key": "stolen",
+        "Host": "evil.com",
+        "X-Safe-Header": "allowed",
+      }),
+    };
+    const config = loadConfig(env);
+    expect(config.customHeaders).toEqual({ "X-Safe-Header": "allowed" });
+    expect(config.customHeaders).not.toHaveProperty("Authorization");
+    expect(config.customHeaders).not.toHaveProperty("api-key");
+    expect(config.customHeaders).not.toHaveProperty("Host");
+  });
+
   it("sets optional secrets when provided", () => {
     const env: Env = {
       ...minimalEnv,

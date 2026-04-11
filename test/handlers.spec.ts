@@ -30,27 +30,14 @@ describe("handleHealth", () => {
     expect(response.status).toBe(200);
   });
 
-  it("includes key_mode and config info", async () => {
+  it("returns healthy status without operational details", async () => {
     const response = handleHealth(defaultConfig);
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.status).toBe("healthy");
-    expect(body.key_mode).toBe("managed");
-    expect(body.client_api_key_validation).toBe(false);
     expect(body).toHaveProperty("timestamp");
-  });
-
-  it("shows passthrough key_mode when no openai key", async () => {
-    const config = { ...defaultConfig, openaiApiKey: "" };
-    const response = handleHealth(config);
-    const body = (await response.json()) as Record<string, unknown>;
-    expect(body.key_mode).toBe("passthrough");
-  });
-
-  it("includes client_api_key_validation as true when anthropic key set", async () => {
-    const config = { ...defaultConfig, anthropicApiKey: "sk-ant-test" };
-    const response = handleHealth(config);
-    const body = (await response.json()) as Record<string, unknown>;
-    expect(body.client_api_key_validation).toBe(true);
+    // Should NOT expose operational mode details
+    expect(body).not.toHaveProperty("key_mode");
+    expect(body).not.toHaveProperty("client_api_key_validation");
   });
 });
 

@@ -24,8 +24,17 @@ export async function handleMessages(
   config: AppConfig,
   apiKey: string,
 ): Promise<Response> {
+  // Reject oversized request bodies (10 MB limit)
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > 10 * 1024 * 1024) {
+    return errorResponse(413, "Request body too large (max 10 MB)");
+  }
+
   // Read body once for routing decision
   const rawBody = await request.text();
+  if (rawBody.length > 10 * 1024 * 1024) {
+    return errorResponse(413, "Request body too large (max 10 MB)");
+  }
 
   let parsed: Record<string, unknown>;
   try {
@@ -82,12 +91,12 @@ async function handleMessagesPassthrough(
       method: "POST",
       headers,
       body: forwardBody,
+      signal: AbortSignal.timeout(config.requestTimeout * 1000),
     });
 
     // Forward response headers
     const responseHeaders: Record<string, string> = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "*",
     };
     const contentType = response.headers.get("Content-Type");
     if (contentType) {
@@ -126,10 +135,11 @@ async function handleMessagesOpenAI(
 
     if (body.stream) {
       // Streaming
+      const signal = AbortSignal.timeout(config.requestTimeout * 1000);
       const openaiStream = await createChatCompletionStream(
         config,
         openaiRequest,
-        undefined,
+        signal,
         apiKey,
       );
       const claudeStream = convertOpenAIStreamToClaude(openaiStream, body);
@@ -150,12 +160,12 @@ async function handleMessagesOpenAI(
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers": "*",
         },
       });
     } else {
       // Non-streaming
-      const openaiResponse = await createChatCompletion(config, openaiRequest, undefined, apiKey);
+      const signal = AbortSignal.timeout(config.requestTimeout * 1000);
+      const openaiResponse = await createChatCompletion(config, openaiRequest, signal, apiKey);
       const claudeResponse = convertOpenAIToClaude(openaiResponse, body);
       return Response.json(claudeResponse);
     }
@@ -229,8 +239,6 @@ export function handleHealth(config: AppConfig): Response {
   return Response.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    key_mode: config.openaiApiKey ? "managed" : "passthrough",
-    client_api_key_validation: Boolean(config.anthropicApiKey),
   });
 }
 
