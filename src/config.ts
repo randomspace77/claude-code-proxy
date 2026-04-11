@@ -105,7 +105,9 @@ export function loadConfig(env: Env): AppConfig {
 
 function parseProvidersJson(raw: string): ProvidersJsonConfig {
   try {
-    const parsed = JSON.parse(raw) as ProvidersJsonConfig;
+    // Strip BOM and surrounding whitespace (common when pasting into Dashboard)
+    const cleaned = raw.replace(/^\uFEFF/, "").trim();
+    const parsed = JSON.parse(cleaned) as ProvidersJsonConfig;
     if (!parsed.default || typeof parsed.default !== "string") {
       throw new Error("PROVIDERS JSON must have a 'default' field");
     }
